@@ -1,5 +1,16 @@
 node_modules/
 dist/
+
 .env
+.env.*
+!.env.example
+
 *.log
+
 .idea/
+.DS_Store
+
+prisma/*.db
+prisma/*.db-journal
+prisma/*.db-shm
+prisma/*.db-wal
