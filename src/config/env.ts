@@ -3,7 +3,7 @@ import 'dotenv/config';
 const requiredEnvironmentVariables = [
   'BOT_TOKEN',
   'DATABASE_URL',
-  // 'ENCRYPTION_KEY',
+  'ENCRYPTION_KEY',
 ] as const;
 
 type EnvironmentVariable = (typeof requiredEnvironmentVariables)[number];
@@ -23,7 +23,7 @@ function loadEnvironment(): Environment {
   return {
     BOT_TOKEN: process.env.BOT_TOKEN as string,
     DATABASE_URL: process.env.DATABASE_URL as string,
-    // ENCRYPTION_KEY: process.env.ENCRYPTION_KEY as string,
+    ENCRYPTION_KEY: process.env.ENCRYPTION_KEY as string,
   };
 }
 
