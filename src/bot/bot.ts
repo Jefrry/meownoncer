@@ -2,6 +2,7 @@ import { Telegraf } from 'telegraf';
 
 import { env } from '../config/env.js';
 import { UserService } from '../modules/users/user.service.js';
+import { registerMenuHandlers } from './handlers/menu.handler.js';
 import { mainKeyboard } from './keyboards/main.keyboard.js';
 
 export const bot = new Telegraf(env.BOT_TOKEN);
@@ -21,3 +22,5 @@ bot.start(async (ctx) => {
     mainKeyboard,
   );
 });
+
+registerMenuHandlers(bot);
