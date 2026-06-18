@@ -44,4 +44,13 @@ export class IntegrationRepository {
       },
     });
   }
+
+  deleteIntegration(userId: string, platform: Platform) {
+    return prisma.platformIntegration.deleteMany({
+      where: {
+        userId,
+        platform,
+      },
+    });
+  }
 }

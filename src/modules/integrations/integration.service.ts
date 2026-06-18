@@ -24,6 +24,17 @@ export class IntegrationService {
     );
   }
 
+  getDiscordIntegration(userId: string) {
+    return this.integrationRepository.findByUserAndPlatform(
+      userId,
+      Platform.DISCORD,
+    );
+  }
+
+  disconnectDiscord(userId: string) {
+    return this.integrationRepository.deleteIntegration(userId, Platform.DISCORD);
+  }
+
   connectVk(userId: string, settings: VkIntegrationSettings) {
     const encryptedSettings = encryptJson(settings);
 
