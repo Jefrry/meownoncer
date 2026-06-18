@@ -35,6 +35,10 @@ export class IntegrationService {
     return this.integrationRepository.deleteIntegration(userId, Platform.DISCORD);
   }
 
+  getVkIntegration(userId: string) {
+    return this.integrationRepository.findByUserAndPlatform(userId, Platform.VK);
+  }
+
   connectVk(userId: string, settings: VkIntegrationSettings) {
     const encryptedSettings = encryptJson(settings);
 
@@ -43,6 +47,10 @@ export class IntegrationService {
       Platform.VK,
       encryptedSettings,
     );
+  }
+
+  disconnectVk(userId: string) {
+    return this.integrationRepository.deleteIntegration(userId, Platform.VK);
   }
 
   async getUserIntegrations(userId: string): Promise<UserIntegration[]> {
