@@ -63,7 +63,7 @@ export function registerMenuHandlers(bot: Telegraf): void {
 
     await ctx.editMessageText(
       `Discord-интеграция: ${status}`,
-      discordIntegrationKeyboard,
+      discordIntegrationKeyboard(Boolean(discordIntegration)),
     );
   });
 
@@ -111,7 +111,7 @@ export function registerMenuHandlers(bot: Telegraf): void {
 
     await ctx.editMessageText(
       `VK-интеграция: ${status}`,
-      vkIntegrationKeyboard,
+      vkIntegrationKeyboard(Boolean(vkIntegration)),
     );
   });
 
