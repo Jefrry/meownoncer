@@ -2,21 +2,29 @@ import { Telegraf } from 'telegraf';
 import { message } from 'telegraf/filters';
 
 import {
+  AWAITING_ANNOUNCEMENT_IMAGE_STATE,
+  AWAITING_ANNOUNCEMENT_TEXT_STATE,
   AWAITING_DISCORD_WEBHOOK_STATE,
   AWAITING_VK_SETTINGS_STATE,
 } from '../../constants.js';
 import { DiscordService } from '../../modules/integrations/discord/discord.service.js';
 import { IntegrationService } from '../../modules/integrations/integration.service.js';
+import type { DiscordIntegrationSettings } from '../../modules/integrations/integration.types.js';
 import { VkService } from '../../modules/integrations/vk/vk.service.js';
 import { UserService } from '../../modules/users/user.service.js';
 import { UserStateManager } from '../../modules/users/userStateManager.js';
+import { decryptJson } from '../../utils/crypto.js';
+import {
+  announcementImageKeyboard,
+  announcementPlatformsKeyboard,
+  announcementTextKeyboard,
+} from '../keyboards/announcement.keyboard.js';
 import {
   discordIntegrationKeyboard,
   integrationsKeyboard,
   vkIntegrationKeyboard,
 } from '../keyboards/integrations.keyboard.js';
 import { mainKeyboard } from '../keyboards/main.keyboard.js';
-import { profileKeyboard } from '../keyboards/profile.keyboard.js';
 
 export function registerMenuHandlers(bot: Telegraf): void {
   const userService = new UserService();
@@ -40,10 +48,143 @@ export function registerMenuHandlers(bot: Telegraf): void {
 
   bot.action('menu:create_announcement', async (ctx) => {
     await ctx.answerCbQuery();
-    await ctx.editMessageText(
-      'Создание анонса пока в разработке.',
-      profileKeyboard,
+    if (!ctx.from) {
+      await ctx.reply('Не удалось получить данные пользователя.');
+      return;
+    }
+
+    userStateManager.setAwaitingAnnouncementText(ctx.from.id);
+    await ctx.editMessageText('Отправь текст анонса.', announcementTextKeyboard);
+  });
+
+  bot.action('announcement:cancel', async (ctx) => {
+    await ctx.answerCbQuery();
+
+    if (ctx.from) {
+      userStateManager.clear(ctx.from.id);
+    }
+
+    await ctx.editMessageText('Создание анонса отменено.', mainKeyboard);
+  });
+
+  bot.action('announcement:skip_image', async (ctx) => {
+    await ctx.answerCbQuery();
+
+    if (!ctx.from) {
+      await ctx.reply('Не удалось получить данные пользователя.');
+      return;
+    }
+
+    const state = userStateManager.get(ctx.from.id);
+
+    if (state?.type !== AWAITING_ANNOUNCEMENT_IMAGE_STATE) {
+      await ctx.reply('Не найден черновик анонса. Создай анонс заново.');
+      return;
+    }
+
+    userStateManager.clear(ctx.from.id);
+
+    const announcement = userStateManager.saveAnnouncement(ctx.from.id, {
+      text: state.text,
+    });
+
+    await ctx.reply(
+      announcement.text,
+      announcementPlatformsKeyboard(announcement.discordStatus),
     );
+  });
+
+  bot.action('announcement:send_discord', async (ctx) => {
+    await ctx.answerCbQuery();
+
+    if (!ctx.from) {
+      await ctx.reply('Не удалось получить данные пользователя.');
+      return;
+    }
+
+    const announcement = userStateManager.getAnnouncement(ctx.from.id);
+
+    if (!announcement) {
+      await ctx.reply('Не найден анонс для отправки. Создай анонс заново.');
+      return;
+    }
+
+    try {
+      const user = await userService.registerTelegramUser(ctx.from);
+      const discordIntegration =
+        await integrationService.getDiscordIntegration(user.id);
+
+      if (!discordIntegration) {
+        const updatedAnnouncement =
+          userStateManager.setDiscordAnnouncementStatus(
+            ctx.from.id,
+            'failed',
+          );
+
+        if (updatedAnnouncement) {
+          await ctx.editMessageReplyMarkup(
+            announcementPlatformsKeyboard(
+              updatedAnnouncement.discordStatus,
+            ).reply_markup,
+          );
+        }
+
+        await ctx.reply(
+          'Discord не подключён. Подключи его в разделе Мои площадки.',
+        );
+        return;
+      }
+
+      const { webhookUrl } = decryptJson<DiscordIntegrationSettings>(
+        discordIntegration.encryptedSettings,
+      );
+      const imageUrl = announcement.imageTelegramFileId
+        ? (await ctx.telegram.getFileLink(
+            announcement.imageTelegramFileId,
+          )).toString()
+        : undefined;
+
+      await discordService.sendAnnouncement({
+        webhookUrl,
+        text: announcement.text,
+        imageUrl,
+      });
+
+      const updatedAnnouncement = userStateManager.setDiscordAnnouncementStatus(
+        ctx.from.id,
+        'sent',
+      );
+
+      if (updatedAnnouncement) {
+        await ctx.editMessageReplyMarkup(
+          announcementPlatformsKeyboard(
+            updatedAnnouncement.discordStatus,
+          ).reply_markup,
+        );
+      }
+
+      await ctx.reply('Анонс отправлен в Discord.');
+    } catch (error) {
+      const updatedAnnouncement = userStateManager.setDiscordAnnouncementStatus(
+        ctx.from.id,
+        'failed',
+      );
+
+      if (updatedAnnouncement) {
+        await ctx.editMessageReplyMarkup(
+          announcementPlatformsKeyboard(
+            updatedAnnouncement.discordStatus,
+          ).reply_markup,
+        );
+      }
+
+      const messageText =
+        error instanceof Error
+          ? error.message
+          : 'Не удалось отправить анонс в Discord.';
+
+      await ctx.reply(messageText);
+    }
   });
 
   bot.action('integrations:discord', async (ctx) => {
@@ -160,9 +301,9 @@ export function registerMenuHandlers(bot: Telegraf): void {
       return;
     }
 
-    userStateManager.clear(telegramId);
-
     if (state.type === AWAITING_DISCORD_WEBHOOK_STATE) {
+      userStateManager.clear(telegramId);
+
       if (!discordService.validateWebhookUrl(ctx.message.text)) {
         await ctx.reply(
           'Некорректный Discord webhook URL. Нужна ссылка вида https://discord.com/api/webhooks/...',
@@ -189,6 +330,8 @@ export function registerMenuHandlers(bot: Telegraf): void {
     }
 
     if (state.type === AWAITING_VK_SETTINGS_STATE) {
+      userStateManager.clear(telegramId);
+
       const separatorIndex = ctx.message.text.indexOf(':');
       const groupId =
         separatorIndex >= 0
@@ -220,6 +363,86 @@ export function registerMenuHandlers(bot: Telegraf): void {
 
         await ctx.reply(messageText);
       }
+
+      return;
     }
+
+    if (state.type === AWAITING_ANNOUNCEMENT_TEXT_STATE) {
+      const text = ctx.message.text.trim();
+
+      if (!text) {
+        await ctx.reply('Текст анонса не должен быть пустым.');
+        return;
+      }
+
+      userStateManager.setAwaitingAnnouncementImage(telegramId, text);
+      await ctx.reply(
+        'Теперь отправь картинку анонса или продолжи без картинки.',
+        announcementImageKeyboard,
+      );
+
+      return;
+    }
+
+    if (state.type === AWAITING_ANNOUNCEMENT_IMAGE_STATE) {
+      await ctx.reply(
+        'Отправь картинку анонса или нажми «Продолжить без картинки».',
+        announcementImageKeyboard,
+      );
+    }
+  });
+
+  bot.hears('Создать анонс', async (ctx) => {
+    if (!ctx.from) {
+      await ctx.reply('Не удалось получить данные пользователя.');
+      return;
+    }
+
+    userStateManager.setAwaitingAnnouncementText(ctx.from.id);
+    await ctx.reply('Отправь текст анонса.', announcementTextKeyboard);
+  });
+
+  bot.hears('Мои площадки', async (ctx) => {
+    await ctx.reply('Твои подключённые площадки:', integrationsKeyboard);
+  });
+
+  bot.on(message('photo'), async (ctx, next) => {
+    const telegramId = ctx.from.id;
+    const state = userStateManager.get(telegramId);
+
+    if (state?.type !== AWAITING_ANNOUNCEMENT_IMAGE_STATE) {
+      await next();
+      return;
+    }
+
+    userStateManager.clear(telegramId);
+
+    const largestPhoto = ctx.message.photo[ctx.message.photo.length - 1];
+    const imageTelegramFileId = largestPhoto?.file_id;
+
+    if (!imageTelegramFileId) {
+      await ctx.reply('Не удалось получить картинку анонса. Попробуй ещё раз.');
+      userStateManager.setAwaitingAnnouncementImage(telegramId, state.text);
+      return;
+    }
+
+    const announcement = userStateManager.saveAnnouncement(telegramId, {
+      text: state.text,
+      imageTelegramFileId,
+    });
+
+    if (announcement.text.length <= 1024) {
+      await ctx.replyWithPhoto(imageTelegramFileId, {
+        caption: announcement.text,
+        ...announcementPlatformsKeyboard(announcement.discordStatus),
+      });
+      return;
+    }
+
+    await ctx.replyWithPhoto(imageTelegramFileId);
+    await ctx.reply(
+      announcement.text,
+      announcementPlatformsKeyboard(announcement.discordStatus),
+    );
   });
 }

@@ -51,12 +51,24 @@ export class DiscordService {
   async sendAnnouncement({
     webhookUrl,
     text,
+    imageUrl,
   }: SendAnnouncementParams): Promise<void> {
+    if (imageUrl) {
+      await this.sendWebhookMessageWithImage({
+        webhookUrl,
+        content: text,
+        imageUrl,
+        errorMessage:
+          'Не удалось отправить анонс в Discord. Проверь подключение и попробуй ещё раз.',
+      });
+      return;
+    }
+
     await this.sendWebhookMessage({
       webhookUrl,
       content: text,
       errorMessage:
-        'Не удалось отправить сообщение в Discord. Проверь webhook URL и попробуй ещё раз.',
+        'Не удалось отправить анонс в Discord. Проверь подключение и попробуй ещё раз.',
       shouldReturnMessage: false,
     });
   }
@@ -97,6 +109,81 @@ export class DiscordService {
     }
 
     return (await response.json()) as DiscordWebhookMessage;
+  }
+
+  private async sendWebhookMessageWithImage({
+    webhookUrl,
+    content,
+    imageUrl,
+    errorMessage,
+  }: {
+    webhookUrl: string;
+    content: string;
+    imageUrl: string;
+    errorMessage: string;
+  }): Promise<void> {
+    const image = await this.downloadImage(imageUrl);
+    const formData = new FormData();
+
+    formData.set('payload_json', JSON.stringify({ content }));
+    formData.set('files[0]', image.blob, image.filename);
+
+    let response: Response;
+
+    try {
+      response = await fetch(webhookUrl, {
+        method: 'POST',
+        body: formData,
+      });
+    } catch {
+      throw new Error(errorMessage);
+    }
+
+    if (!response.ok) {
+      throw new Error(
+        `Discord webhook вернул ошибку ${response.status}. Проверь права webhook.`,
+      );
+    }
+  }
+
+  private async downloadImage(
+    imageUrl: string,
+  ): Promise<{ blob: Blob; filename: string }> {
+    let response: Response;
+
+    try {
+      response = await fetch(imageUrl);
+    } catch {
+      throw new Error('Не удалось скачать картинку анонса.');
+    }
+
+    if (!response.ok) {
+      throw new Error('Не удалось скачать картинку анонса.');
+    }
+
+    const contentType = response.headers.get('content-type') ?? 'image/jpeg';
+    const blob = await response.blob();
+
+    return {
+      blob,
+      filename: `announcement.${this.getImageExtension(contentType)}`,
+    };
+  }
+
+  private getImageExtension(contentType: string): string {
+    if (contentType.includes('png')) {
+      return 'png';
+    }
+
+    if (contentType.includes('webp')) {
+      return 'webp';
+    }
+
+    if (contentType.includes('gif')) {
+      return 'gif';
+    }
+
+    return 'jpg';
   }
 
   private async deleteWebhookMessage(
